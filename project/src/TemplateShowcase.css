@@ -1,0 +1,18 @@
+.tpl-section { width: 100%; padding: 0 0 20px; background: transparent; }
+.tpl-label { font-size: 11px; letter-spacing: .3em; text-transform: uppercase; color: rgba(255,255,255,.85); font-weight: 600; margin-bottom: 4px; }
+.tpl-marquee { overflow: hidden; width: 100%; padding: 24px 0 8px; }
+.tpl-track { display: flex; width: max-content; animation: tpl-scroll 45s linear infinite; }
+.tpl-marquee:hover .tpl-track { animation-play-state: paused; }
+@keyframes tpl-scroll { to { transform: translateX(-50%); } }
+
+.tpl-wrap { perspective: 900px; display: flex; flex-direction: column; align-items: center; gap: 10px; margin-right: 40px; }
+.tpl-card {
+  height: 190px; border-radius: 6px; position: relative;
+  background-size: cover; background-position: center;
+  display: flex; flex-direction: column; justify-content: center; gap: 6px; padding: 8px;
+  border: 3px solid #fff;
+  box-shadow: 0 14px 30px rgba(0,20,60,.45), 0 2px 6px rgba(0,20,60,.3);
+  transform-style: preserve-3d; transition: transform .15s ease-out;
+}
+.tpl-slot { flex: 1; border-radius: 3px; background: #dbeafe; }
+.tpl-name { font-size: 11px; color: rgba(255,255,255,.9); font-weight: 600; letter-spacing: .03em; }
