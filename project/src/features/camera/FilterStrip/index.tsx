@@ -11,11 +11,11 @@ interface Props {
 function Thumb({ id, name }: { id: string; name: string }) {
   return (
     <div
-      className="relative h-12 w-16 overflow-hidden rounded-md bg-gradient-to-br from-neutral-700 to-neutral-900 pointer-events-none select-none"
+      className="relative h-20 w-24 overflow-hidden rounded-lg bg-gradient-to-br from-neutral-700 to-neutral-900 pointer-events-none select-none"
       style={{ filter: FILTERS.find((f) => f.id === id)?.css }}
     >
-      <div className="absolute inset-0 flex items-end p-1">
-        <span className="text-[7px] font-medium leading-none text-white drop-shadow">{name}</span>
+      <div className="absolute inset-0 flex items-end p-2">
+        <span className="text-[9px] font-semibold leading-none text-white drop-shadow">{name}</span>
       </div>
     </div>
   );
@@ -100,7 +100,7 @@ export function FilterStrip({ active, onSelect }: Props) {
             }`}
           >
             <Thumb id={f.id} name={f.name} />
-            <span className="text-[10px] font-medium tracking-wide text-neutral-300">{f.name}</span>
+            <span className="text-[11px] font-semibold tracking-wide text-neutral-200">{f.name}</span>
           </button>
         ))}
       </div>

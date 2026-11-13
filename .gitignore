@@ -1,0 +1,11 @@
+﻿node_modules/
+dist/
+.env
+.idea/
+.postman/
+backend/vendor/
+backend/uploads/*
+backend/application/logs/*
+backend/application/cache/*
+!backend/application/logs/index.html
+!backend/application/cache/index.html

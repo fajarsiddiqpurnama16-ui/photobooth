@@ -133,6 +133,7 @@ export function CameraStudio({
   const [countdown, setCountdown] = useState(0);
   const [flash, setFlash] = useState(false);
   const [showTimerUI, setShowTimerUI] = useState(false);
+  // showFilters: di mobile = popup overlay; di lg+ = selalu tampil di sidebar kiri
   const [showFilters, setShowFilters] = useState(false);
   const [showGallery, setShowGallery] = useState(false);
   const [muted, setMuted] = useState(true);
@@ -145,11 +146,9 @@ export function CameraStudio({
   // Pelacakan wajah: hanya aktif kalau ada efek yang dipilih dan kamera sudah siap
   const { facesRef, status: trackerStatus } = useFaceTracker(videoRef, needsFaces(effect) && ready);
 
-
   const filterCss = FILTERS.find((f) => f.id === filter)?.css ?? 'none';
 
-  // Penanda "pemanggilan terbaru". Di mode dev React menjalankan efek dua kali, dan tanpa
-  // penanda ini kamera bisa terbuka dua kali sekaligus (salah satunya bocor, layar jadi hitam).
+  // Penanda "pemanggilan terbaru"
   const startRunRef = useRef(0);
 
   const startCamera = useCallback(async () => {
@@ -162,7 +161,6 @@ export function CameraStudio({
         audio: false,
       });
       if (run !== startRunRef.current) {
-        // sudah ada pemanggilan yang lebih baru (atau komponen sudah ditutup): lepas kamera ini
         stream.getTracks().forEach((t) => t.stop());
         return;
       }
@@ -189,7 +187,7 @@ export function CameraStudio({
   useEffect(() => {
     void startCamera();
     return () => {
-      startRunRef.current++; // batalkan pemanggilan yang masih menunggu
+      startRunRef.current++;
       streamRef.current?.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
     };
@@ -230,7 +228,6 @@ export function CameraStudio({
           ctx.clearRect(0, 0, cw, ch);
           const vw = video.videoWidth;
           const vh = video.videoHeight;
-          // video ditampilkan object-cover dan dicerminkan, jadi petakan titik wajah dengan cara yang sama
           const s = Math.min(cw / vw, ch / vh);
           const ox = (cw - vw * s) / 2;
           const oy = (ch - vh * s) / 2;
@@ -254,19 +251,19 @@ export function CameraStudio({
   const capturePhoto = useCallback(() => {
     const video = videoRef.current;
     if (!video || !video.videoWidth) return null;
-    const canvas = document.createElement('canvas');
     const vw = video.videoWidth;
     const vh = video.videoHeight;
-    canvas.width = vw;
-    canvas.height = vh;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return null;
+
+    const baseCanvas = document.createElement('canvas');
+    baseCanvas.width = vw;
+    baseCanvas.height = vh;
+    const ctx = baseCanvas.getContext('2d')!;
     ctx.translate(vw, 0);
     ctx.scale(-1, 1);
     ctx.filter = filterCss === 'none' ? 'none' : filterCss;
     ctx.drawImage(video, 0, 0, vw, vh);
 
-    // Bakar efek ke dalam foto (tanpa filter warna supaya stiker tetap berwarna asli)
+    // Bakar efek wajah ke dalam foto
     if (effect !== 'none') {
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.filter = 'none';
@@ -277,7 +274,7 @@ export function CameraStudio({
       drawEffects(ctx, effect, faces, performance.now() / 1000);
     }
 
-    return canvas.toDataURL('image/jpeg', 0.92);
+    return baseCanvas.toDataURL('image/jpeg', 0.92);
   }, [filterCss, effect, facesRef]);
 
   const doCountdownAndCapture = useCallback(async () => {
@@ -304,17 +301,13 @@ export function CameraStudio({
         const next = [...prev];
         next[targetSlot] = photo;
 
-        // Check if all slots are filled
         const allFilled = next.length >= targetCount && next.slice(0, targetCount).every(Boolean);
 
         if (initialRetakeIndex !== null) {
-          // If we came specifically to retake a single photo, complete and return to preview
           setTimeout(() => onCaptureComplete(next.slice(0, targetCount)), 500);
         } else if (allFilled) {
-          // All photos done!
           setTimeout(() => onCaptureComplete(next.slice(0, targetCount)), 600);
         } else {
-          // Advance to next empty slot
           const nextEmpty = next.findIndex((p, idx) => idx < targetCount && !p);
           if (nextEmpty !== -1) {
             setTargetSlot(nextEmpty);
@@ -371,6 +364,21 @@ export function CameraStudio({
 
   const isCurrentSlotFilled = Boolean(photos[targetSlot]);
   const allSlotsFilled = photos.length >= targetCount && photos.slice(0, targetCount).every(Boolean);
+
+  /** Konten panel filter — dipakai di sidebar kiri (md+) maupun popup (mobile) */
+  const FilterPanelContent = (
+    <div className="flex flex-col gap-5 p-4">
+      <div>
+        <p className="mb-3 text-[11px] font-semibold uppercase tracking-widest text-neutral-400">🎨 Filter Warna</p>
+        <FilterStrip active={filter} onSelect={setFilter} />
+      </div>
+
+      <div>
+        <p className="mb-3 text-[11px] font-semibold uppercase tracking-widest text-neutral-400">😄 Efek Wajah</p>
+        <EffectStrip active={effect} onSelect={setEffect} status={trackerStatus} />
+      </div>
+    </div>
+  );
 
   return (
     <div className="relative flex h-[100dvh] flex-col overflow-hidden bg-gradient-to-br from-[#082f6b] via-[#0b4a9e] to-[#1a73d9]">
@@ -490,150 +498,167 @@ export function CameraStudio({
         )}
       </div>
 
-      {/* Camera view */}
-      <div className="relative z-10 flex min-h-0 flex-1 items-center justify-center px-3 pb-2">
-        <div className="hidden min-w-0 flex-1 2xl:block" />
-        <div
-          className="relative h-full max-w-full overflow-hidden rounded-[2rem] border-[6px] border-white bg-neutral-900 shadow-[0_10px_0_rgba(0,20,60,0.35),0_20px_50px_rgba(0,20,60,0.45)]"
-          style={{ aspectRatio: '16 / 9' }}
-        >
-          {error ? (
-            <div className="flex h-full flex-col items-center justify-center gap-4 px-6 text-center">
-              <Camera size={48} className="text-white/60" />
-              <p className="max-w-sm text-sm text-white/80">{error}</p>
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={() => void startCamera()}
-                  className="rounded-full bg-white px-6 py-2 text-sm font-bold text-[#0b4a9e]"
-                >
-                  Retry
-                </button>
-                <button
-                  onClick={() => {
-                    const samples = generateSamplePhotos(targetCount);
-                    onCaptureComplete(samples);
-                  }}
-                  className="rounded-full border border-white/30 bg-white/15 px-6 py-2 text-sm font-bold text-white hover:bg-white/25"
-                >
-                  Use Sample Photos
-                </button>
-              </div>
+      {/* ===== MAIN CONTENT AREA ===== */}
+      <div className="relative z-10 flex min-h-0 flex-1 items-stretch px-3 pb-2 gap-3">
+
+        {/* KIRI: Filter panel — sidebar permanen di md+, tersembunyi di mobile kecil */}
+        <div className="hidden md:flex md:w-64 lg:w-72 xl:w-80 shrink-0 flex-col self-stretch py-1">
+          <div className="flex flex-col h-full rounded-2xl bg-neutral-900/90 shadow-2xl ring-1 ring-white/20 backdrop-blur overflow-hidden">
+            <div className="px-4 pt-4 pb-2 border-b border-white/10 shrink-0">
+              <p className="text-[13px] font-bold uppercase tracking-widest text-white/80">🎨 Filter &amp; Efek</p>
             </div>
-          ) : (
-            <>
-              <video
+            <div className="flex-1 overflow-y-auto">
+              {FilterPanelContent}
+            </div>
+          </div>
+        </div>
 
-              onLoadedMetadata={(e) => {
-                const v = e.currentTarget;
-                if (v.videoWidth && v.videoHeight) setVideoAspect(v.videoWidth / v.videoHeight);
-              }}
-                ref={videoRef}
-                autoPlay
-                playsInline
-                muted
-                className="absolute inset-0 h-full w-full object-contain"
-                style={{ filter: filterCss, transform: 'scaleX(-1)' }}
-              />
-              {/* Efek wajah (stiker) di atas video */}
-              <canvas ref={overlayRef} className="pointer-events-none absolute inset-0 h-full w-full" />
-              <SlotGuide aspect={slotAspect(template, targetSlot)} videoAspect={videoAspect} />
-
-              <CountdownOverlay count={countdown} />
-              <ShutterFlash show={flash} />
-
-              {/* Tampilan viewfinder kamera digital */}
-              <div className="pointer-events-none absolute inset-0">
-                {['left-3 top-3 border-l-4 border-t-4 rounded-tl-xl', 'right-3 top-3 border-r-4 border-t-4 rounded-tr-xl', 'bottom-3 left-3 border-b-4 border-l-4 rounded-bl-xl', 'bottom-3 right-3 border-b-4 border-r-4 rounded-br-xl'].map((c) => (
-                  <span key={c} className={`absolute h-8 w-8 border-white/80 ${c}`} />
-                ))}
-                <div className="absolute left-5 top-5 flex items-center gap-1.5 rounded-md bg-black/35 px-2 py-0.5 text-[10px] font-bold tracking-widest text-white">
-                  <span className="h-2 w-2 rounded-full bg-red-500" style={{ animation: 'pb-blink 1.2s infinite' }} />
-                  REC
+        {/* TENGAH: Kamera */}
+        <div className="flex flex-1 items-center justify-center min-w-0">
+          <div
+            className="relative h-full max-w-full overflow-hidden rounded-[2rem] border-[6px] border-white bg-neutral-900 shadow-[0_10px_0_rgba(0,20,60,0.35),0_20px_50px_rgba(0,20,60,0.45)]"
+            style={{ aspectRatio: '16 / 9' }}
+          >
+            {error ? (
+              <div className="flex h-full flex-col items-center justify-center gap-4 px-6 text-center">
+                <Camera size={48} className="text-white/60" />
+                <p className="max-w-sm text-sm text-white/80">{error}</p>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => void startCamera()}
+                    className="rounded-full bg-white px-6 py-2 text-sm font-bold text-[#0b4a9e]"
+                  >
+                    Retry
+                  </button>
+                  <button
+                    onClick={() => {
+                      const samples = generateSamplePhotos(targetCount);
+                      onCaptureComplete(samples);
+                    }}
+                    className="rounded-full border border-white/30 bg-white/15 px-6 py-2 text-sm font-bold text-white hover:bg-white/25"
+                  >
+                    Use Sample Photos
+                  </button>
                 </div>
-                <div className="absolute inset-x-0 h-px bg-white/25" style={{ animation: 'pb-scan 4s linear infinite' }} />
               </div>
+            ) : (
+              <>
+                {/* Video */}
+                <video
+                  onLoadedMetadata={(e) => {
+                    const v = e.currentTarget;
+                    if (v.videoWidth && v.videoHeight) setVideoAspect(v.videoWidth / v.videoHeight);
+                  }}
+                  ref={videoRef}
+                  autoPlay
+                  playsInline
+                  muted
+                  className="absolute inset-0 h-full w-full object-contain"
+                  style={{
+                    filter: filterCss,
+                    transform: 'scaleX(-1)',
+                  }}
+                />
+                {/* Efek wajah (stiker) di atas video */}
+                <canvas ref={overlayRef} className="pointer-events-none absolute inset-0 h-full w-full" />
+                <SlotGuide aspect={slotAspect(template, targetSlot)} videoAspect={videoAspect} />
 
-              {!ready && (
-                <div className="absolute inset-0 flex items-center justify-center bg-[#0b4a9e]">
-                  <div className="h-10 w-10 animate-spin rounded-full border-4 border-white/30 border-t-white" />
-                </div>
-              )}
+                <CountdownOverlay count={countdown} />
+                <ShutterFlash show={flash} />
 
-              {/* Filter panel */}
-              {showFilters && (
-                <div className="absolute left-1/2 top-4 z-20 w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 rounded-2xl bg-neutral-900/95 p-3.5 shadow-2xl ring-2 ring-white/40 backdrop-blur">
-                  <div className="mb-2 flex items-center justify-between">
-                    <p className="text-[10px] font-semibold uppercase tracking-widest text-neutral-400">Pilih Filter / Efek</p>
-                    <button onClick={() => setShowFilters(false)} className="text-xs text-neutral-400 hover:text-white">✕ Tutup</button>
+                {/* Viewfinder kamera digital */}
+                <div className="pointer-events-none absolute inset-0">
+                  {['left-3 top-3 border-l-4 border-t-4 rounded-tl-xl', 'right-3 top-3 border-r-4 border-t-4 rounded-tr-xl', 'bottom-3 left-3 border-b-4 border-l-4 rounded-bl-xl', 'bottom-3 right-3 border-b-4 border-r-4 rounded-br-xl'].map((c) => (
+                    <span key={c} className={`absolute h-8 w-8 border-white/80 ${c}`} />
+                  ))}
+                  <div className="absolute left-5 top-5 flex items-center gap-1.5 rounded-md bg-black/35 px-2 py-0.5 text-[10px] font-bold tracking-widest text-white">
+                    <span className="h-2 w-2 rounded-full bg-red-500" style={{ animation: 'pb-blink 1.2s infinite' }} />
+                    REC
                   </div>
-                  <FilterStrip active={filter} onSelect={setFilter} />
-
-                  <p className="mb-2 mt-3 text-[10px] font-semibold uppercase tracking-widest text-neutral-400">Efek Wajah</p>
-                  <EffectStrip active={effect} onSelect={setEffect} status={trackerStatus} />
+                  <div className="absolute inset-x-0 h-px bg-white/25" style={{ animation: 'pb-scan 4s linear infinite' }} />
                 </div>
-              )}
 
-              {/* Gallery panel */}
-              {showGallery && photos.length > 0 && (
-                <div className="absolute left-1/2 top-4 z-20 w-[calc(100%-2rem)] max-w-md -translate-x-1/2 rounded-2xl bg-neutral-900/95 p-3 shadow-2xl ring-2 ring-white/40 backdrop-blur">
-                  <div className="mb-2 flex items-center justify-between">
-                    <p className="text-[10px] font-semibold uppercase tracking-widest text-neutral-400">Foto yang Sudah Diambil</p>
-                    <button onClick={() => setShowGallery(false)} className="text-xs text-neutral-400 hover:text-white">✕</button>
+                {!ready && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-[#0b4a9e]">
+                    <div className="h-10 w-10 animate-spin rounded-full border-4 border-white/30 border-t-white" />
                   </div>
-                  <div className="grid grid-cols-3 gap-2">
-                    {Array.from({ length: targetCount }).map((_, i) => (
-                      <div
-                        key={i}
-                        onClick={() => {
-                          handleSelectSlotForRetake(i);
-                          setShowGallery(false);
-                        }}
-                        className={`relative cursor-pointer overflow-hidden rounded-lg border transition-all ${
-                          targetSlot === i ? 'border-sky-300 ring-2 ring-sky-300' : 'border-white/10 hover:border-white/30'
-                        }`}
-                      >
-                        {photos[i] ? (
-                          <img src={photos[i]} alt={`Slot ${i + 1}`} className="h-20 w-full object-cover" />
-                        ) : (
-                          <div className="flex h-20 w-full items-center justify-center bg-neutral-800 text-xs text-neutral-500">
-                            Kosong
-                          </div>
-                        )}
-                        <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-black/70 px-1 py-0.5 text-[9px] text-white">
-                          <span>Foto {i + 1}</span>
-                          {photos[i] && (
-                            <span title="Klik untuk retake">
-                              <RotateCcw size={9} />
-                            </span>
+                )}
+
+                {/* Filter panel popup — HANYA di mobile kecil (< md) */}
+                {showFilters && (
+                  <div className="absolute left-1/2 top-4 z-20 w-[calc(100%-2rem)] max-w-sm -translate-x-1/2 rounded-2xl bg-neutral-900/95 shadow-2xl ring-2 ring-white/40 backdrop-blur md:hidden">
+                    <div className="flex items-center justify-between px-3.5 pt-3 pb-1 border-b border-white/10">
+                      <p className="text-[10px] font-semibold uppercase tracking-widest text-neutral-400">Filter &amp; Efek</p>
+                      <button onClick={() => setShowFilters(false)} className="text-xs text-neutral-400 hover:text-white">✕ Tutup</button>
+                    </div>
+                    {FilterPanelContent}
+                  </div>
+                )}
+
+                {/* Gallery panel */}
+                {showGallery && photos.length > 0 && (
+                  <div className="absolute left-1/2 top-4 z-20 w-[calc(100%-2rem)] max-w-md -translate-x-1/2 rounded-2xl bg-neutral-900/95 p-3 shadow-2xl ring-2 ring-white/40 backdrop-blur">
+                    <div className="mb-2 flex items-center justify-between">
+                      <p className="text-[10px] font-semibold uppercase tracking-widest text-neutral-400">Foto yang Sudah Diambil</p>
+                      <button onClick={() => setShowGallery(false)} className="text-xs text-neutral-400 hover:text-white">✕</button>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2">
+                      {Array.from({ length: targetCount }).map((_, i) => (
+                        <div
+                          key={i}
+                          onClick={() => {
+                            handleSelectSlotForRetake(i);
+                            setShowGallery(false);
+                          }}
+                          className={`relative cursor-pointer overflow-hidden rounded-lg border transition-all ${
+                            targetSlot === i ? 'border-sky-300 ring-2 ring-sky-300' : 'border-white/10 hover:border-white/30'
+                          }`}
+                        >
+                          {photos[i] ? (
+                            <img src={photos[i]} alt={`Slot ${i + 1}`} className="h-20 w-full object-cover" />
+                          ) : (
+                            <div className="flex h-20 w-full items-center justify-center bg-neutral-800 text-xs text-neutral-500">
+                              Kosong
+                            </div>
                           )}
+                          <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-black/70 px-1 py-0.5 text-[9px] text-white">
+                            <span>Foto {i + 1}</span>
+                            {photos[i] && (
+                              <span title="Klik untuk retake">
+                                <RotateCcw size={9} />
+                              </span>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      ))}
+                    </div>
                   </div>
-                </div>
-              )}
-            </>
-          )}
+                )}
+              </>
+            )}
+          </div>
         </div>
-        {/* Kanan: pratinjau hasil template (layar lebar) */}
-      <div className="pointer-events-none hidden h-full min-w-0 flex-1 flex-col items-center justify-center gap-2 px-4 2xl:flex">
-        <div className="flex min-h-0 w-full flex-1 items-center justify-center" style={{ containerType: 'size' }}>
-          <TemplatePreview
-            fit
-            template={template}
-            live={{
-              activeIndex: targetSlot,
-              photos: Array.from({ length: targetCount }, (_, i) => (i === targetSlot ? null : photos[i] ?? null)),
-              stream: liveStream,
-              mirrored: true,
-              filterCss,
-            }}
-          />
+
+        {/* KANAN: pratinjau hasil template (layar lebar) */}
+        <div className="pointer-events-none hidden h-full md:w-56 lg:w-64 xl:w-72 shrink-0 md:flex flex-col items-center justify-center gap-2">
+          <div className="flex min-h-0 w-full flex-1 items-center justify-center" style={{ containerType: 'size' }}>
+            <TemplatePreview
+              fit
+              template={template}
+              live={{
+                activeIndex: targetSlot,
+                photos: Array.from({ length: targetCount }, (_, i) => (i === targetSlot ? null : photos[i] ?? null)),
+                stream: liveStream,
+                mirrored: true,
+                filterCss,
+              }}
+            />
+          </div>
+          <span className="rounded-full bg-white/90 px-3 py-1 text-[11px] font-bold text-[#0b4a9e] shadow">
+            Foto {targetSlot + 1} dari {targetCount}
+          </span>
         </div>
-        <span className="rounded-full bg-white/90 px-3 py-1 text-[11px] font-bold text-[#0b4a9e] shadow">
-          Foto {targetSlot + 1} dari {targetCount}
-        </span>
-      </div>
+
       </div>
 
       {/* Bottom control bar */}
@@ -659,8 +684,8 @@ export function CameraStudio({
           )}
         </div>
 
-        {/* Filters */}
-        <div className="flex flex-col items-center gap-1">
+        {/* Filter button — hanya di mobile kecil, di md+ panel sudah selalu tampil */}
+        <div className="flex flex-col items-center gap-1 md:hidden">
           <button
             onClick={() => {
               sound.click();

@@ -3,9 +3,16 @@ import type { FaceLandmarker, NormalizedLandmark } from '@mediapipe/tasks-vision
 
 /**
  * Jumlah wajah maksimal yang dilacak sekaligus.
- * Makin banyak, makin berat di komputer. Turunkan ke 3 kalau terasa patah-patah.
+ * 5 = semua orang dalam frame kena efek.
  */
 const MAX_FACES = 5;
+
+/**
+ * Throttle deteksi wajah: hanya proses tiap N milidetik.
+ * 100ms ≈ 10fps deteksi — cukup halus untuk stiker wajah,
+ * jauh lebih ringan dari 60fps. Naikkan ke 150 kalau masih berat.
+ */
+const DETECT_INTERVAL_MS = 100;
 
 /**
  * Lokasi file MediaPipe. Default: diambil dari internet (CDN) saat efek pertama dipakai.
@@ -40,6 +47,9 @@ function loadFaceLandmarker(): Promise<FaceLandmarker> {
           baseOptions: { modelAssetPath: MODEL_URL, delegate },
           runningMode: 'VIDEO',
           numFaces: MAX_FACES,
+          // Hanya landmark yang dipakai — tidak perlu blendshapes / transformations
+          outputFaceBlendshapes: false,
+          outputFacialTransformationMatrixes: false,
         });
       try {
         return await make('GPU');
@@ -154,6 +164,7 @@ export function useFaceTracker(videoRef: RefObject<HTMLVideoElement>, enabled: b
     let cancelled = false;
     let raf = 0;
     let lastTime = -1;
+    let lastDetectAt = 0;   // timestamp deteksi terakhir (throttle)
     let warned = false;
     let nextId = 1;
     let tracks: TrackedFace[] = [];
@@ -164,12 +175,19 @@ export function useFaceTracker(videoRef: RefObject<HTMLVideoElement>, enabled: b
         if (cancelled) return;
         setStatus('ready');
 
-        const loop = () => {
+        const loop = (now: number) => {
           const video = videoRef.current;
-          if (video && video.readyState >= 2 && video.currentTime !== lastTime) {
+          // Throttle: skip frame jika belum waktunya
+          if (
+            video &&
+            video.readyState >= 2 &&
+            video.currentTime !== lastTime &&
+            now - lastDetectAt >= DETECT_INTERVAL_MS
+          ) {
             lastTime = video.currentTime;
+            lastDetectAt = now;
             try {
-              const res = landmarker.detectForVideo(video, performance.now());
+              const res = landmarker.detectForVideo(video, now);
               const detected = res.faceLandmarks.filter((f) => f.length > 455);
 
               // Cocokkan tiap wajah baru dengan wajah frame sebelumnya (paling dekat berdasarkan
@@ -192,10 +210,11 @@ export function useFaceTracker(videoRef: RefObject<HTMLVideoElement>, enabled: b
                   const prev = tracks[best];
                   next.push({
                     id: prev.id,
+                    // Smooth lerp lebih kuat (0.5) agar stiker tidak terlalu gemetar
                     points: cur.map((p, i) => ({
                       ...p,
-                      x: prev.points[i].x + (p.x - prev.points[i].x) * 0.6,
-                      y: prev.points[i].y + (p.y - prev.points[i].y) * 0.6,
+                      x: prev.points[i].x + (p.x - prev.points[i].x) * 0.5,
+                      y: prev.points[i].y + (p.y - prev.points[i].y) * 0.5,
                     })),
                   });
                 } else {
@@ -213,7 +232,7 @@ export function useFaceTracker(videoRef: RefObject<HTMLVideoElement>, enabled: b
           }
           raf = requestAnimationFrame(loop);
         };
-        loop();
+        raf = requestAnimationFrame(loop);
       })
       .catch((err) => {
         console.error('[FaceTracker] gagal memuat model/library:', err);
@@ -228,4 +247,4 @@ export function useFaceTracker(videoRef: RefObject<HTMLVideoElement>, enabled: b
   }, [enabled, videoRef]);
 
   return { facesRef, status };
-}
+}
